@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Details - Review Aggregator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-star-fill"></i> Review Aggregator
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Search</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/compare">Compare</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <!-- Loading -->
+        <div id="loadingSpinner" class="text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading product details...</p>
+        </div>
+
+        <!-- Product Header -->
+        <div id="productHeader" style="display: none;">
+            <div class="row">
+                <div class="col-md-4">
+                    <img id="productImage" class="img-fluid rounded" alt="Product">
+                </div>
+                <div class="col-md-8">
+                    <h1 id="productName"></h1>
+                    <p id="productDescription" class="text-muted"></p>
+                    
+                    <div class="d-flex align-items-center mb-3">
+                        <div class="rating-display me-3">
+                            <span class="badge bg-success" id="avgRating"></span>
+                            <i class="bi bi-star-fill text-warning"></i>
+                        </div>
+                        <span class="text-muted" id="totalReviews"></span>
+                    </div>
+
+                    <button class="btn btn-primary" id="scrapeButton">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh Reviews
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Section -->
+        <div id="analyticsSection" class="row mt-5" style="display: none;">
+            <!-- Sentiment Chart -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Sentiment Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="sentimentChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rating Distribution -->
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Rating Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="ratingChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pros and Cons -->
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0"><i class="bi bi-hand-thumbs-up"></i> Top Pros</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul id="prosList" class="list-unstyled"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0"><i class="bi bi-hand-thumbs-down"></i> Top Cons</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul id="consList" class="list-unstyled"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reviews Section -->
+        <div id="reviewsSection" class="mt-5" style="display: none;">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">Reviews</h4>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-primary active" data-filter="all">All</button>
+                        <button type="button" class="btn btn-sm btn-outline-success" data-filter="positive">Positive</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-filter="neutral">Neutral</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-filter="negative">Negative</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="reviewsList"></div>
+                    <div class="text-center mt-3">
+                        <button id="loadMoreReviews" class="btn btn-outline-primary">Load More</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const productId = {{ product_id }};
+        let currentFilter = 'all';
+        let reviewsOffset = 0;
+        let sentimentChart, ratingChart;
+
+        // Load product data
+        async function loadProduct() {
+            try {
+                const [productRes, aggregateRes] = await Promise.all([
+                    fetch(`/api/product/${productId}`),
+                    fetch(`/api/product/${productId}/aggregate`)
+                ]);
+
+                const productData = await productRes.json();
+                const aggregateData = await aggregateRes.json();
+
+                displayProduct(productData.product);
+                displayAnalytics(aggregateData.aggregate);
+                loadReviews();
+
+                document.getElementById('loadingSpinner').style.display = 'none';
+            } catch (error) {
+                console.error('Error loading product:', error);
+                alert('Failed to load product details');
+            }
+        }
+
+        function displayProduct(product) {
+            document.getElementById('productName').textContent = product.name;
+            document.getElementById('productDescription').textContent = product.description;
+            document.getElementById('productImage').src = product.image_url || 'https://via.placeholder.com/300';
+            document.getElementById('avgRating').textContent = product.avg_rating;
+            document.getElementById('totalReviews').textContent = `${product.total_reviews} reviews`;
+            document.getElementById('productHeader').style.display = 'block';
+        }
+
+        function displayAnalytics(aggregate) {
+            // Sentiment Chart
+            const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
+            sentimentChart = new Chart(sentimentCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Positive', 'Neutral', 'Negative'],
+                    datasets: [{
+                        data: [
+                            aggregate.sentiment_distribution.positive,
+                            aggregate.sentiment_distribution.neutral,
+                            aggregate.sentiment_distribution.negative
+                        ],
+                        backgroundColor: ['#28a745', '#ffc107', '#dc3545']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+
+            // Rating Chart
+            const ratingCtx = document.getElementById('ratingChart').getContext('2d');
+            const ratingDist = aggregate.rating_distribution;
+            ratingChart = new Chart(ratingCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'],
+                    datasets: [{
+                        label: 'Number of Reviews',
+                        data: [ratingDist['1'], ratingDist['2'], ratingDist['3'], ratingDist['4'], ratingDist['5']],
+                        backgroundColor: '#007bff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            // Pros and Cons
+            document.getElementById('prosList').innerHTML = aggregate.pros
+                .map(pro => `<li><i class="bi bi-check-circle text-success"></i> ${pro}</li>`)
+                .join('');
+            document.getElementById('consList').innerHTML = aggregate.cons
+                .map(con => `<li><i class="bi bi-x-circle text-danger"></i> ${con}</li>`)
+                .join('');
+
+            document.getElementById('analyticsSection').style.display = 'flex';
+        }
+
+        async function loadReviews() {
+            const filter = currentFilter === 'all' ? '' : `&sentiment=${currentFilter}`;
+            const res = await fetch(`/api/product/${productId}/reviews?limit=10&offset=${reviewsOffset}${filter}`);
+            const data = await res.json();
+
+            displayReviews(data.reviews);
+            document.getElementById('reviewsSection').style.display = 'block';
+        }
+
+        function displayReviews(reviews) {
+            const reviewsHtml = reviews.map(review => `
+                <div class="review-item border-bottom pb-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6>${review.title || 'Review'}</h6>
+                            <div class="mb-2">
+                                <span class="badge bg-warning">${review.rating} <i class="bi bi-star-fill"></i></span>
+                                <span class="badge bg-${review.sentiment.label === 'positive' ? 'success' : review.sentiment.label === 'negative' ? 'danger' : 'secondary'}">
+                                    ${review.sentiment.label}
+                                </span>
+                                ${review.is_verified ? '<span class="badge bg-info">Verified</span>' : ''}
+                            </div>
+                        </div>
+                        <small class="text-muted">${review.review_date || ''}</small>
+                    </div>
+                    <p class="mb-1">${review.text}</p>
+                    <small class="text-muted">by ${review.author} | ${review.source}</small>
+                </div>
+            `).join('');
+
+            if (reviewsOffset === 0) {
+                document.getElementById('reviewsList').innerHTML = reviewsHtml;
+            } else {
+                document.getElementById('reviewsList').innerHTML += reviewsHtml;
+            }
+            reviewsOffset += 10;
+        }
+
+        // Filter reviews
+        document.querySelectorAll('[data-filter]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                currentFilter = e.target.dataset.filter;
+                reviewsOffset = 0;
+                loadReviews();
+            });
+        });
+
+        // Load more reviews
+        document.getElementById('loadMoreReviews').addEventListener('click', loadReviews);
+
+        // Scrape button
+        document.getElementById('scrapeButton').addEventListener('click', async () => {
+            if (confirm('This will scrape fresh reviews. Continue?')) {
+                const btn = document.getElementById('scrapeButton');
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scraping...';
+                
+                try {
+                    const res = await fetch(`/api/product/${productId}/scrape`, { method: 'POST' });
+                    const data = await res.json();
+                    alert(data.message);
+                    location.reload();
+                } catch (error) {
+                    alert('Scraping failed');
+                } finally {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh Reviews';
+                }
+            }
+        });
+
+        // Initialize
+        loadProduct();
+    </script>
+</body>
+</html>
