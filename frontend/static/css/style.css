@@ -6,20 +6,35 @@
     --danger-color: #dc3545;
     --warning-color: #ffc107;
     --light-bg: #f8f9fa;
+    --dark-bg: #212529;
 }
 
+/* Body and Layout */
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
 }
 
+html,
+body {
+    height: 100%;
+}
+
+/* Sticky footer support */
+.min-vh-100 {
+    min-height: 100vh;
+}
+
+.flex-grow-1 {
+    flex: 1 0 auto;
+}
+
+/* Navigation */
 .navbar-brand {
     font-weight: 600;
     font-size: 1.3rem;
 }
 
+/* Hero Section */
 .hero-section {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
@@ -29,6 +44,7 @@ body {
     font-weight: 700;
 }
 
+/* Search */
 .search-container {
     position: relative;
     max-width: 600px;
@@ -43,9 +59,10 @@ body {
     z-index: 1000;
     max-height: 300px;
     overflow-y: auto;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
+/* Product Cards */
 .product-card {
     transition: transform 0.3s ease, box-shadow 0.3s ease;
     cursor: pointer;
@@ -53,23 +70,31 @@ body {
 
 .product-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 }
 
 .product-card img {
     border-bottom: 1px solid #dee2e6;
 }
 
+/* Rating Display */
 .rating-display {
     font-size: 1.2rem;
 }
 
+/* Reviews */
 .review-item {
     padding: 1rem 0;
 }
 
 .review-item:last-child {
     border-bottom: none !important;
+}
+
+/* Badges */
+.badge {
+    padding: 0.5em 0.8em;
+    font-weight: 500;
 }
 
 .sentiment-badge-positive {
@@ -87,17 +112,17 @@ body {
     color: white;
 }
 
-/* Chart containers */
+/* Charts */
 .card-body canvas {
     max-height: 300px;
 }
 
-/* Loading spinner */
+/* Loading */
 #loadingSpinner {
     padding: 3rem 0;
 }
 
-/* Comparison table */
+/* Comparison */
 .comparison-table {
     overflow-x: auto;
 }
@@ -111,77 +136,72 @@ body {
     font-weight: 600;
 }
 
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .hero-section h1 {
-        font-size: 2rem;
-    }
-    
-    .product-card {
-        margin-bottom: 1rem;
-    }
+/* Pros and Cons Lists */
+#prosList li,
+#consList li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #f0f0f0;
 }
 
-/* Badge styles */
-.badge {
-    padding: 0.5em 0.8em;
-    font-weight: 500;
+#prosList li:last-child,
+#consList li:last-child {
+    border-bottom: none;
 }
 
-/* Button hover effects */
+/* Cards */
+.card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    border: none;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Buttons */
 .btn {
     transition: all 0.3s ease;
 }
 
 .btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* Card shadows */
-.card {
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    border: none;
-}
-
-.card:hover {
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-
-/* Footer */
+/* Footer Styles */
 footer {
     margin-top: auto;
+    flex-shrink: 0;
 }
 
-/* Pros and cons lists */
-#prosList li, #consList li {
-    padding: 0.5rem 0;
-    border-bottom: 1px solid #f0f0f0;
+footer h5,
+footer h6 {
+    font-weight: 600;
 }
 
-#prosList li:last-child, #consList li:last-child {
-    border-bottom: none;
+footer a {
+    transition: color 0.3s ease;
 }
 
-/* Sentiment chart colors */
-.sentiment-positive {
-    color: var(--success-color);
+footer a:hover {
+    color: #ffffff !important;
 }
 
-.sentiment-neutral {
-    color: var(--warning-color);
+footer hr {
+    opacity: 0.1;
 }
 
-.sentiment-negative {
-    color: var(--danger-color);
+footer .bi {
+    margin-right: 0.5rem;
 }
 
-/* Animation for cards */
+/* Animations */
 @keyframes fadeInUp {
     from {
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -192,7 +212,7 @@ footer {
     animation: fadeInUp 0.5s ease;
 }
 
-/* Scrollbar styling */
+/* Scrollbar */
 ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -211,25 +231,28 @@ footer {
     background: #555;
 }
 
-/* Compare page specific */
-.comparison-card {
-    border: 2px solid transparent;
-    transition: border-color 0.3s ease;
+/* Responsive */
+@media (max-width: 768px) {
+    .hero-section h1 {
+        font-size: 2rem;
+    }
+
+    .product-card {
+        margin-bottom: 1rem;
+    }
+
+    footer .col-md-4 {
+        text-align: center;
+    }
+
+    footer ul {
+        padding-left: 0;
+    }
 }
 
-.comparison-card:hover {
-    border-color: var(--primary-color);
-}
-
-.metric-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--primary-color);
-}
-
-.metric-label {
-    font-size: 0.9rem;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+/* Dark mode support for footer */
+@media (prefers-color-scheme: dark) {
+    footer {
+        background-color: var(--dark-bg);
+    }
 }
