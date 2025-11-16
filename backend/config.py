@@ -1,50 +1,86 @@
 import os
 from datetime import timedelta
+import random
 
 class Config:
-    """Base configuration"""
+    """Base configuration """
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'sqlite:///reviews.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    # Redis for Celery
-    CELERY_BROKER_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/0'
-    CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL') or 'redis://localhost:6379/0'
+    SCRAPING_DELAY_MIN = 3  # Minimum delay between requests
+    SCRAPING_DELAY_MAX = 8  # Maximum delay between requests
     
-    # Scraping settings
-    SCRAPING_DELAY = 2  # seconds between requests
-    MAX_REVIEWS_PER_PRODUCT = 100
-    USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-
+    # Request limits
+    MAX_REVIEWS_PER_PRODUCT = 50
+    MAX_PRODUCTS_PER_SEARCH = 10
+    MAX_REQUESTS_PER_SESSION = 20  # Rotate session after this many requests
     
-    # Sentiment analysis
-    SENTIMENT_MODEL = 'distilbert-base-uncased-finetuned-sst-2-english'
-    SENTIMENT_BATCH_SIZE = 32
+    # Rotating User Agents
+    USER_AGENTS = [
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+    ]
     
-    # Cache settings
-    CACHE_TYPE = 'redis'
-    CACHE_REDIS_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/1'
-    CACHE_DEFAULT_TIMEOUT = 3600  # 1 hour
+    # Request headers
+    ACCEPT_LANGUAGE = 'en-US,en;q=0.9,hi;q=0.8'
+    ACCEPT_ENCODING = 'gzip, deflate, br'
+    
+    # Retry strategy
+    MAX_RETRIES = 3
+    RETRY_BACKOFF_FACTOR = 2  # Exponential backoff: 2s, 4s, 8s
     
     # Rate limiting
-    RATELIMIT_STORAGE_URL = os.environ.get('REDIS_URL') or 'redis://localhost:6379/2'
-    RATELIMIT_DEFAULT = "100 per hour"
+    RATE_LIMIT_ENABLED = True
+    MIN_TIME_BETWEEN_REQUESTS = 3  # Minimum 3 seconds between requests
+    
+    # Cache settings
+    CACHE_TYPE = 'simple'  # Changed from 'redis' to 'simple'
+    CACHE_DEFAULT_TIMEOUT = 3600
+    CACHE_SEARCH_RESULTS = 1800  # Cache search results for 30 minutes
+    
+    # Proxy settings (optional)
+    USE_PROXY = os.environ.get('USE_PROXY', 'false').lower() == 'true'
+    PROXY_LIST = os.environ.get('PROXY_LIST', '').split(',') if os.environ.get('PROXY_LIST') else []
+    
+    @staticmethod
+    def get_random_user_agent():
+        """Get a random user agent"""
+        return random.choice(Config.USER_AGENTS)
+    
+    @staticmethod
+    def get_random_delay():
+        """Get a random delay between min and max"""
+        return random.uniform(Config.SCRAPING_DELAY_MIN, Config.SCRAPING_DELAY_MAX)
+    
+    def get(self, key, default=None):
+        """Dictionary-like access to config values"""
+        return getattr(self, key, default)
 
 class DevelopmentConfig(Config):
     DEBUG = True
     TESTING = False
-
+    SCRAPING_DELAY_MIN = 2
+    SCRAPING_DELAY_MAX = 5
 
 class ProductionConfig(Config):
     DEBUG = False
     TESTING = False
-    # Use PostgreSQL in production
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or 'postgresql://user:pass@localhost/reviews'
+    SCRAPING_DELAY_MIN = 5
+    SCRAPING_DELAY_MAX = 12
+    MAX_REQUESTS_PER_SESSION = 15  # More conservative in production
 
 class TestingConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
-    CELERY_TASK_ALWAYS_EAGER = True  # Run tasks synchronously in tests
+    SCRAPING_DELAY_MIN = 0
+    SCRAPING_DELAY_MAX = 0
 
 config = {
     'development': DevelopmentConfig,

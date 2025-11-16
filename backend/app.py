@@ -8,41 +8,31 @@ from services.aggregation_service import AggregationService
 from services.search_service import SearchService
 from scrapers.amazon_scraper import AmazonScraper
 from scrapers.flipkart_scraper import FlipkartScraper
-
 import logging
 import os
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def create_app(config_name='default'):
     """Application factory"""
-
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    template_dir = os.path.join(base_dir, '../frontend/templates')
-    static_dir = os.path.join(base_dir, '../frontend/static')
-
-    app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+    app = Flask(__name__, 
+                template_folder='../frontend/templates',
+                static_folder='../frontend/static')
     app.config.from_object(config[config_name])
     
     # Initialize extensions
     db.init_app(app)
     CORS(app)
-
+    
+    # Initialize cache with fallback to SimpleCache
     try:
-        # Try connecting to Redis
-        test_redis = redis.Redis.from_url(app.config.get('CACHE_REDIS_URL', 'redis://localhost:6379/0'))
-        test_redis.ping()  # will throw exception if Redis not running
-
-        app.config['CACHE_TYPE'] = 'RedisCache'
-        logger.info("✅ Connected to Redis — using RedisCache.")
+        cache = Cache(app)
+        logger.info(f"Cache initialized: {app.config.get('CACHE_TYPE')}")
     except Exception as e:
-        # Fall back to SimpleCache
-        app.config['CACHE_TYPE'] = 'SimpleCache'
-        app.config['CACHE_DEFAULT_TIMEOUT'] = 300
-        logger.warning(f"⚠️ Redis not available, falling back to SimpleCache. Error: {e}")
-    cache = Cache(app)
+        logger.warning(f"Cache initialization failed, using SimpleCache: {e}")
+        app.config['CACHE_TYPE'] = 'simple'
+        cache = Cache(app)
     
     # Initialize services
     sentiment_service = SentimentService(use_vader=True)
@@ -55,14 +45,17 @@ def create_app(config_name='default'):
         'flipkart': FlipkartScraper(app.config)
     }
     
-    # Create tables
+    # Create tables and initialize sources
     with app.app_context():
         db.create_all()
-        # Initialize sources
-        for source_name in scrapers.keys():
+        for source_name, scraper in scrapers.items():
             source = Source.query.filter_by(name=source_name).first()
             if not source:
-                source = Source(name=source_name, base_url=scrapers[source_name].BASE_URL)
+                source = Source(
+                    name=source_name,
+                    base_url=scraper.BASE_URL,
+                    is_active=True
+                )
                 db.session.add(source)
         db.session.commit()
     
@@ -86,7 +79,6 @@ def create_app(config_name='default'):
     # API Routes
     
     @app.route('/api/search', methods=['GET'])
-    @cache.cached(timeout=300, query_string=True)
     def search_products():
         """
         Search for products
@@ -107,19 +99,27 @@ def create_app(config_name='default'):
             
             # If not enough results, scrape
             if len(local_products) < 5:
+                logger.info(f"Fetching fresh data for '{query}' from {source_name}")
+                
                 scraper = scrapers[source_name]
-                scraped = scraper.search_products(query, max_results=10)
+                scraped_products = scraper.search_products(query, max_results=10)
                 
                 # Save to database
-                for item in scraped:
-                    product = search_service.create_or_update_product(
-                        name=item['name'],
-                        source_name=source_name,
-                        source_url=item['url'],
-                        source_product_id=item['source_product_id'],
-                        image_url=item.get('image_url'),
-                        price=item.get('price')
-                    )
+                for item in scraped_products:
+                    try:
+                        search_service.create_or_update_product(
+                            name=item['name'],
+                            source_name=source_name,
+                            source_url=item['url'],
+                            source_product_id=item.get('source_product_id'),
+                            image_url=item.get('image_url'),
+                            price=item.get('price'),
+                            description=item.get('description'),
+                            category=item.get('category')
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to save product: {e}")
+                        continue
                 
                 # Search again
                 local_products = search_service.search_products(query)
@@ -127,7 +127,8 @@ def create_app(config_name='default'):
             return jsonify({
                 'success': True,
                 'query': query,
-                'results': [p.to_dict() for p in local_products]
+                'results': [p.to_dict() for p in local_products],
+                'source': source_name
             })
             
         except Exception as e:
@@ -135,7 +136,6 @@ def create_app(config_name='default'):
             return jsonify({'error': 'Search failed'}), 500
     
     @app.route('/api/product/<int:product_id>', methods=['GET'])
-    @cache.cached(timeout=600)
     def get_product(product_id):
         """Get product details"""
         product = Product.query.get_or_404(product_id)
@@ -178,7 +178,6 @@ def create_app(config_name='default'):
         })
     
     @app.route('/api/product/<int:product_id>/aggregate', methods=['GET'])
-    @cache.cached(timeout=600)
     def get_aggregate_data(product_id):
         """Get aggregated analysis for product"""
         product = Product.query.get_or_404(product_id)
@@ -197,7 +196,6 @@ def create_app(config_name='default'):
     def scrape_product_reviews(product_id):
         """
         Trigger scraping for a product
-        This should ideally be a background job
         """
         product = Product.query.get_or_404(product_id)
         
@@ -213,13 +211,30 @@ def create_app(config_name='default'):
         try:
             scraper = scrapers[source_name]
             
+            # Scrape product details first
+            logger.info(f"Scraping product details for {product.name}")
+            details = scraper.scrape_product_details(product_source.source_url)
+            
+            # Update product with fresh details if available
+            if details:
+                if details.get('description'):
+                    product.description = details.get('description')
+                if details.get('image_url'):
+                    product.image_url = details.get('image_url')
+                if details.get('category'):
+                    product.category = details.get('category')
+                db.session.commit()
+                logger.info("Updated product details")
+            
             # Scrape reviews
+            logger.info(f"Scraping reviews (max {app.config['MAX_REVIEWS_PER_PRODUCT']})")
             reviews_data = scraper.scrape_reviews(
                 product_source.source_url,
                 max_reviews=app.config['MAX_REVIEWS_PER_PRODUCT']
             )
             
             # Process and save reviews
+            saved_count = 0
             for review_data in reviews_data:
                 # Analyze sentiment
                 sentiment = sentiment_service.analyze_text(review_data['text'])
@@ -247,22 +262,26 @@ def create_app(config_name='default'):
                         sentiment_confidence=sentiment['confidence']
                     )
                     db.session.add(review)
+                    saved_count += 1
             
             db.session.commit()
             
             # Update aggregates
             aggregation_service.update_product_aggregates(product_id)
             
+            logger.info(f"Successfully scraped {saved_count} new reviews")
+            
             return jsonify({
                 'success': True,
-                'message': f'Scraped {len(reviews_data)} reviews',
-                'reviews_count': len(reviews_data)
+                'message': f'Scraped {len(reviews_data)} reviews ({saved_count} new)',
+                'reviews_count': len(reviews_data),
+                'new_reviews': saved_count
             })
             
         except Exception as e:
             logger.error(f"Scraping error: {e}")
             db.session.rollback()
-            return jsonify({'error': 'Scraping failed'}), 500
+            return jsonify({'error': str(e)}), 500
     
     @app.route('/api/compare', methods=['GET'])
     def compare_products():
@@ -294,6 +313,22 @@ def create_app(config_name='default'):
             'comparison': comparison
         })
     
+    @app.route('/health')
+    def health_check():
+        """Health check endpoint"""
+        try:
+            # Check database connection
+            db.session.execute('SELECT 1')
+            return jsonify({
+                'status': 'healthy',
+                'database': 'connected'
+            }), 200
+        except Exception as e:
+            return jsonify({
+                'status': 'unhealthy',
+                'error': str(e)
+            }), 500
+    
     # Error handlers
     
     @app.errorhandler(404)
@@ -309,4 +344,5 @@ def create_app(config_name='default'):
 
 if __name__ == '__main__':
     app = create_app(os.environ.get('FLASK_ENV', 'development'))
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    port = int(os.environ.get('PORT', 5001))
+    app.run(host='0.0.0.0', port=port, debug=True)
