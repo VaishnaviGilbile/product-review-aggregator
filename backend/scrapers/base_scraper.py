@@ -26,13 +26,19 @@ class BaseScraper(ABC):
         session = requests.Session()
         session.headers.update(self._get_random_headers())
         
-        # Note: Manual retry logic is handled in _get_page() method
-        # No need for adapter-level retries
+        # Add connection pooling
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=0  # We handle retries manually
+        )
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
         
         return session
     
     def _get_random_headers(self):
-        """Get randomized headers to appear more human"""
+       
         # Get random user agent from config
         if hasattr(self.config, 'USER_AGENTS'):
             user_agents = self.config.USER_AGENTS
@@ -44,51 +50,54 @@ class BaseScraper(ABC):
         # Fallback to default if no user agents configured
         if not user_agents:
             user_agents = [
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             ]
         
         user_agent = random.choice(user_agents)
         
+        # More realistic browser headers
         headers = {
             'User-Agent': user_agent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': self.config.get('ACCEPT_LANGUAGE', 'en-US,en;q=0.9') if hasattr(self.config, 'get') else 'en-US,en;q=0.9',
-            'Accept-Encoding': self.config.get('ACCEPT_ENCODING', 'gzip, deflate, br') if hasattr(self.config, 'get') else 'gzip, deflate, br',
-            'DNT': '1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
             'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
             'Cache-Control': 'max-age=0',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
         }
         
-        # Randomly add optional headers
-        if random.random() > 0.5:
-            headers['Referer'] = self._get_referer()
+        # Randomly add referer
+        if random.random() > 0.3:
+            referers = [
+                'https://www.google.com/',
+                'https://www.google.co.in/',
+                'https://www.google.co.in/search?q=',
+            ]
+            headers['Referer'] = random.choice(referers)
         
         return headers
-    
-    def _get_referer(self):
-        """Get a believable referer"""
-        referers = [
-            'https://www.google.com/',
-            'https://www.google.co.in/',
-            'https://www.bing.com/',
-        ]
-        return random.choice(referers)
     
     def _rotate_session(self):
         """Rotate session after certain number of requests"""
         if self.request_count >= self.config.get('MAX_REQUESTS_PER_SESSION', 20):
-            logger.info("Rotating session to avoid detection")
+            logger.info("🔄 Rotating session to avoid detection")
             self.session.close()
             self.session = self._create_session()
             self.request_count = 0
             # Add extra delay after rotation
-            time.sleep(random.uniform(10, 20))
+            delay = random.uniform(15, 25)
+            logger.info(f"💤 Sleeping {delay:.1f}s after session rotation")
+            time.sleep(delay)
     
     def _rate_limit(self):
         """Implement rate limiting with random delays"""
@@ -99,11 +108,11 @@ class BaseScraper(ABC):
         if hasattr(self.config, 'get_random_delay'):
             delay = self.config.get_random_delay()
         elif hasattr(self.config, 'get'):
-            min_delay = self.config.get('SCRAPING_DELAY_MIN', 3)
-            max_delay = self.config.get('SCRAPING_DELAY_MAX', 8)
+            min_delay = self.config.get('SCRAPING_DELAY_MIN', 5)
+            max_delay = self.config.get('SCRAPING_DELAY_MAX', 10)
             delay = random.uniform(min_delay, max_delay)
         else:
-            delay = random.uniform(3, 8)
+            delay = random.uniform(5, 10)
         
         # Calculate time since last request
         current_time = time.time()
@@ -115,17 +124,17 @@ class BaseScraper(ABC):
             # If not enough time has passed, wait
             if time_since_last < delay:
                 sleep_time = delay - time_since_last
-                logger.debug(f"Rate limiting: sleeping {sleep_time:.2f}s")
+                logger.debug(f"⏰ Rate limiting: sleeping {sleep_time:.2f}s")
                 time.sleep(sleep_time)
         else:
             # First request - also apply delay
-            logger.debug(f"First request: applying initial delay of {delay:.2f}s")
+            logger.debug(f"⏰ First request: applying initial delay of {delay:.2f}s")
             time.sleep(delay)
         
         self.last_request_time = time.time()
     
     def _get_page(self, url: str, retries: int = 3) -> Optional[BeautifulSoup]:
-        """Fetch page """
+        """Fetch page with enhanced anti-blocking measures"""
         for attempt in range(retries):
             try:
                 # Rate limiting
@@ -137,67 +146,126 @@ class BaseScraper(ABC):
                 # Randomize headers for each request
                 self.session.headers.update(self._get_random_headers())
                 
-                # Make request
-                logger.debug(f"Fetching: {url} (attempt {attempt + 1}/{retries})")
-                response = self.session.get(url, timeout=15)
+                # Add cookies to appear more legitimate
+                if not self.session.cookies:
+                    self.session.cookies.set('session-id', f'session-{random.randint(100000, 999999)}')
+                
+                # Make request with longer timeout
+                logger.info(f"🌐 Fetching: {url[:80]}... (attempt {attempt + 1}/{retries})")
+                
+                response = self.session.get(
+                    url, 
+                    timeout=30,
+                    allow_redirects=True
+                )
                 
                 # Check for blocking indicators
                 if self._is_blocked(response):
-                    logger.warning(f"Possible blocking detected on attempt {attempt + 1}")
+                    logger.warning(f"🚫 Blocking detected on attempt {attempt + 1}")
+                    
                     if attempt < retries - 1:
                         # Exponential backoff with jitter
-                        backoff = (2 ** attempt) + random.uniform(0, 1)
-                        logger.info(f"Backing off for {backoff:.2f}s")
+                        backoff = (3 ** attempt) + random.uniform(2, 5)
+                        logger.info(f"⏳ Backing off for {backoff:.2f}s")
                         time.sleep(backoff)
+                        
+                        # Create new session on blocking
+                        if attempt > 0:
+                            logger.info("🔄 Creating new session due to blocking")
+                            self.session.close()
+                            self.session = self._create_session()
+                        
                         continue
                     else:
-                        logger.error("Max retries reached, giving up")
+                        logger.error("❌ Max retries reached, still blocked")
                         return None
                 
                 response.raise_for_status()
                 self.request_count += 1
                 
+                # Check if we got actual HTML content
+                content_type = response.headers.get('Content-Type', '')
+                if 'text/html' not in content_type:
+                    logger.warning(f"⚠️ Unexpected content type: {content_type}")
+                    if attempt < retries - 1:
+                        time.sleep(random.uniform(5, 10))
+                        continue
+                    return None
+                
                 # Parse HTML
                 soup = BeautifulSoup(response.content, 'html.parser')
                 
-                # Add random delay to appear more human
-                time.sleep(random.uniform(0.5, 2.0))
+                # Check if we got meaningful content
+                if not soup.find('body') or len(soup.get_text().strip()) < 100:
+                    logger.warning("⚠️ Page content seems empty or invalid")
+                    if attempt < retries - 1:
+                        time.sleep(random.uniform(5, 10))
+                        continue
+                    return None
                 
+                # Add random delay to appear more human
+                human_delay = random.uniform(1.0, 3.0)
+                logger.debug(f"😴 Human-like delay: {human_delay:.2f}s")
+                time.sleep(human_delay)
+                
+                logger.info(f"✅ Successfully fetched page")
                 return soup
                 
             except requests.exceptions.Timeout:
-                logger.warning(f"Timeout on attempt {attempt + 1} for {url}")
+                logger.warning(f"⏰ Timeout on attempt {attempt + 1} for {url[:80]}")
+                if attempt < retries - 1:
+                    time.sleep(random.uniform(5, 10))
+                    
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"🔌 Connection error on attempt {attempt + 1}: {str(e)[:100]}")
                 if attempt < retries - 1:
                     time.sleep(random.uniform(5, 10))
                     
             except requests.exceptions.RequestException as e:
-                logger.error(f"Request failed on attempt {attempt + 1}: {e}")
+                logger.error(f"❌ Request failed on attempt {attempt + 1}: {str(e)[:100]}")
                 if attempt < retries - 1:
                     time.sleep(random.uniform(5, 10))
         
+        logger.error(f"❌ Failed to fetch page after {retries} attempts")
         return None
     
     def _is_blocked(self, response):
-        """Check if response indicates blocking"""
+        """Check if response indicates blocking - with better detection"""
         # Check status code
         if response.status_code in [403, 429, 503]:
+            logger.warning(f"🚫 Blocked status code: {response.status_code}")
+            return True
+        
+        # Check for redirect to CAPTCHA or blocking page
+        if 'captcha' in response.url.lower() or 'block' in response.url.lower():
+            logger.warning(f"🚫 Redirected to blocking page: {response.url}")
+            return True
+        
+        # Check content length - blocked pages are usually very short
+        if len(response.content) < 500:
+            logger.warning(f"🚫 Suspiciously short response: {len(response.content)} bytes")
             return True
         
         # Check for common blocking indicators in content
         content_lower = response.text.lower()
         blocking_indicators = [
+            'sorry, we just need to make sure you\'re not a robot',
+            'enter the characters you see below',
             'captcha',
             'robot check',
             'access denied',
             'blocked',
             'unusual traffic',
-            'try again later',
+            'automated access',
+            'to discuss automated access',
             'security check',
+            'please verify',
+            'are you a robot',
         ]
         
         for indicator in blocking_indicators:
             if indicator in content_lower:
-                logger.warning(f"Blocking indicator found: {indicator}")
+                logger.warning(f"🚫 Blocking indicator found: '{indicator}'")
                 return True
         
         return False
@@ -267,4 +335,7 @@ class BaseScraper(ABC):
     def __del__(self):
         """Cleanup"""
         if hasattr(self, 'session'):
-            self.session.close()
+            try:
+                self.session.close()
+            except:
+                pass
